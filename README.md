@@ -1,7 +1,7 @@
-RotaPro Corretor v1.1
+RotaPro Corretor v1.3 — Padronização de toda a planilha
 
-Envie index.html e app.js para a raiz do repositório GitHub Pages.
+Importa XLSX, preserva linhas, colunas e abas, e padroniza TODAS as ruas reconhecidas. Expande R/R. -> Rua, Av -> Avenida, Pion -> Pioneiro e outras abreviações. Para iniciais em nomes próprios, usa outras linhas da mesma planilha, no mesmo município e número, como referência; nomes ambíguos ficam para revisão.
 
-A exportação mantém todas as colunas e linhas do XLSX original, alterando somente a coluna de endereço na primeira aba; preserva outras abas. O arquivo recebe o sufixo _CORRIGIDA.xlsx. Um aviso verde confirma a geração. Endereços sem número identificável são mantidos para revisão. A biblioteca SheetJS exige conexão à internet.
+Não consulta automaticamente Google/Waze nem inventa nomes oficiais. Os links de mapas servem para verificação manual. Exporta a planilha inteira em XLSX e mostra PLANILHA CORRIGIDA.
 
-A biblioteca SheetJS pode não preservar integralmente todos os recursos avançados do Excel, como algumas formatações e macros. Mantenha o arquivo original como backup.
+Substitua index.html, app.js e README.md na raiz do repositório. Atualize com Ctrl+F5.
