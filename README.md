@@ -1,1 +1,1 @@
-RotaPro Corretor v1.5 — Corrige identificação de apartamento antes do número predial, inclusive com vírgulas; exporta a planilha completa em XLSX. Endereços incertos permanecem para revisão. Não altera o RotaPro principal.
+RotaPro Corretor v1.6 — identificação de apartamento 103B, número predial 438 e remoção de condomínio do endereço padronizado. O botão de exportação fica verde após processar a planilha. Todas as linhas e colunas originais permanecem no XLSX. Reimporte a planilha corrigida no RotaPro para visualizar as alterações.

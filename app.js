@@ -18,23 +18,21 @@ function parseAddress(raw){
  const text=String(raw??'').trim();
  let base=text.replace(/[;|]/g,',').replace(/\s+/g,' ').trim();
  const units=[];
- // Remove complementos em qualquer posição, inclusive "Apartamento, 103B, 438".
- // O número imediatamente associado ao complemento nunca será número predial.
- const unitRe=/(^|[\s,])(?:apartamentos?|aptos?\.?|apart\.?|ap\.?|blocos?|bl\.?|torres?|unidades?|und\.?|salas?|conjuntos?|cj\.?|fundos|lotes?|quadras?)\s*[,.:#-]?\s*(?:n(?:[ºo°.]|umero)?\s*)?([a-z]?\d{1,6}[a-z]?)\b/gi;
- base=base.replace(unitRe,(_,sep,number)=>{units.push(number);return sep===' '? ' ':','});
- // Também remove a palavra "Apartamento" solta, que não pode integrar o nome da rua.
- const orphanRe=/(^|[\s,])(?:apartamentos?|aptos?\.?|apart\.?|ap\.?|blocos?|bl\.?|torres?|unidades?|und\.?|salas?|conjuntos?|cj\.?|fundos|lotes?|quadras?)(?=$|[\s,])/gi;
+ // Remover primeiro os identificadores de apartamento, em qualquer posição.
+ // Também aceitar "Apartamento, 103B, 438" e "Apartamento nº 103B".
+ const unitRe=/(^|[\s,])(?:apartamentos?|aptos?\.?|apart\.?|ap\.?|blocos?|bl\.?|torres?|unidades?|und\.?|salas?|conjuntos?|cj\.?|fundos)\s*[,.:#-]?\s*(?:n(?:[ºo°.]|umero)?\s*)?([a-z]?\d{1,6}[a-z]?)\b/gi;
+ base=base.replace(unitRe,(_,sep,number)=>{units.push(number.toUpperCase());return sep===' '? ' ':','});
+ // Condomínio e demais descrições não são parte do logradouro.
+ base=base.replace(/(?:^|[\s,])(?:condom[ií]nio|cond\.?|residencial|edif[ií]cio|ed\.?|conjunto\s+residencial)\b[^,]*/gi,' ');
+ const orphanRe=/(^|[\s,])(?:apartamentos?|aptos?\.?|apart\.?|ap\.?|blocos?|bl\.?|torres?|unidades?|und\.?|salas?|conjuntos?|cj\.?|fundos)(?=$|[\s,])/gi;
  base=base.replace(orphanRe,' ');
  base=base.replace(/\s*,\s*,+/g,',').replace(/\s+/g,' ').replace(/^[\s,]+|[\s,]+$/g,'');
- // Número predial explícito tem prioridade. Caso contrário, usar o primeiro número
- // ainda associado ao logradouro, depois da remoção dos números dos complementos.
  const candidates=[...base.matchAll(/(?:^|[\s,])(?:n[ºo°.]?\s*)?(\d{1,6}[a-z]?)(?=$|[\s,])/gi)];
  let street='',num='',ambiguousNumber=false;
  if(candidates.length){
   const m=candidates[0];
-  const prefix=base.slice(0,m.index).replace(/[\s,]+$/,'');
-  street=normalizeStreet(prefix);num=m[1].toUpperCase();
-  ambiguousNumber=candidates.length>1;
+  street=normalizeStreet(base.slice(0,m.index).replace(/[\s,]+$/,''));
+  num=m[1].toUpperCase();ambiguousNumber=candidates.length>1;
  }else street=normalizeStreet(base.replace(/\s*,.*$/,''));
  return {street,num,address:displayStreet(street)+(num?', '+num:''),ambiguousNumber,unitNumbers:units};
 }
@@ -57,6 +55,21 @@ function chooseCanonical(processed){
   }
  }
 }
+function chooseByCoordinates(items){
+ // Coordenadas iguais corroboram o mesmo logradouro, mas nunca mudam número predial.
+ const buckets=new Map();
+ for(const x of items){if(!x.coord||!x.p.num||!x.p.street)continue;
+  const k=x.city+'|'+x.p.num+'|'+x.lat.toFixed(5)+'|'+x.lon.toFixed(5);
+  if(!buckets.has(k))buckets.set(k,[]);buckets.get(k).push(x);
+ }
+ for(const bucket of buckets.values()){
+  const names=[...new Set(bucket.map(x=>x.p.street))];
+  for(const x of bucket){const candidates=names.filter(n=>wordsMatch(x.p.street,n)&&n.length>=x.p.street.length);
+   const max=Math.max(0,...candidates.map(n=>n.length));const best=candidates.filter(n=>n.length===max);
+   if(best.length===1&&best[0]!==x.p.street){x.p.street=best[0];x.p.address=displayStreet(best[0])+', '+x.p.num;x.expanded=true;}
+  }
+ }
+}
 function field(row,names){const keys=Object.keys(row);const k=keys.find(k=>names.some(n=>clean(k)===clean(n)));return k?row[k]:''}
 function process(data){
  originals=data;headers=[...new Set(data.flatMap(r=>Object.keys(r)))];
@@ -71,12 +84,13 @@ function process(data){
  return {r,raw,city,cep,lat,lon,coord,p,key,i};
  });
  chooseCanonical(processed);
+ chooseByCoordinates(processed);
  for(const x of processed)x.key=x.city+'|'+x.p.street+'|'+x.p.num;
  const groups=new Map();for(const x of processed){if(!groups.has(x.key))groups.set(x.key,[]);groups.get(x.key).push(x)}
  let n=0;for(const [,group] of groups){n++;const cp=new Set(group.filter(x=>x.cep.length===8).map(x=>x.cep));const c=group.filter(x=>x.coord);let divergent=false;
  for(let i=0;i<c.length;i++)for(let j=i+1;j<c.length;j++)if(haversine(c[i],c[j])>150)divergent=true;
  for(const x of group){x.stop=n;x.review=!x.p.num||!x.city||x.p.ambiguousNumber||cp.size>1||divergent||x.ambiguous;x.reason=!x.p.num?'Número não identificado':!x.city?'Cidade ausente':x.p.ambiguousNumber?'Mais de um número predial possível — revisar':cp.size>1?'CEPs diferentes no mesmo endereço':divergent?'Coordenadas distantes para o mesmo endereço':x.ambiguous?'Nome de rua ambíguo — revisar':x.expanded?'Abreviação expandida com referência na planilha':'Padronizado por rua, número e cidade';}}
- render();$('export').disabled=!processed.length; $('exportNotice').hidden=true;
+ render();$('export').disabled=!processed.length; $('exportNotice').hidden=true; $('export').classList.toggle('ready',processed.length>0); $('export').textContent=processed.length?'✓ PLANILHA CORRIGIDA — BAIXAR XLSX':'⬇ EXPORTAR PLANILHA COMPLETA CORRIGIDA (.xlsx)';
 }
 function haversine(a,b){const r=Math.PI/180,dlat=(a.lat-b.lat)*r,dlon=(a.lon-b.lon)*r;const q=Math.sin(dlat/2)**2+Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin(dlon/2)**2;return 12742000*Math.asin(Math.min(1,Math.sqrt(q)))}
 function escapeHtml(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
@@ -107,7 +121,7 @@ $('file').addEventListener('change',async e=>{
   sourceRowIndexes=indexes;originalCount=data.length;
   process(data);
   $('status').textContent='Planilha importada: '+data.length+' linhas. Exportação manterá todas as linhas, colunas e abas.';
- }catch(err){$('status').textContent='Erro ao importar: '+err.message;sourceWorkbook=null;$('export').disabled=true}
+ }catch(err){$('status').textContent='Erro ao importar: '+err.message;sourceWorkbook=null;$('export').disabled=true;$('export').classList.remove('ready');$('export').textContent='⬇ EXPORTAR PLANILHA COMPLETA CORRIGIDA (.xlsx)'}
 });
 $('demo').onclick=()=>{sourceWorkbook=null;sourceSheetName=null;sourceFilename='exemplo.xlsx';sourceRowIndexes=[];originalCount=2;process([{'Destination Address':'R Pion Alfredo J da Costa 472, Ap 405',City:'Maringá',Sequence:1},{'Destination Address':'Rua Pioneiro Alfredo Jose da Costa, 472, Apto 908',City:'Maringá',Sequence:2}]);$('status').textContent='EXEMPLO com 2 entregas. Para exportar sua rota completa, importe o arquivo XLSX.'};
 $('export').onclick=()=>{
