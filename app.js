@@ -16,27 +16,27 @@ function normalizeStreet(s){
 function displayStreet(s){return s.split(' ').map((w,i)=>i>0&&['da','de','do','das','dos','e'].includes(w)?w:(WORD_ACCENTS[w]||w.charAt(0).toUpperCase()+w.slice(1))).join(' ')}
 function parseAddress(raw){
  const text=String(raw??'').trim();
- // Remove primeiro os complementos, inclusive quando aparecem antes do numero do predio.
- // Numeros precedidos por apartamento, apto, bloco, unidade etc. nunca viram numero da rua.
- const normalized=text.replace(/[;|]/g,',').replace(/\s+/g,' ').trim();
- const tokens=normalized.split(/(?=\b(?:apto?\.?|apartamento|apart\.?|ap\.?|bloco|bl\.?|torre|unidade|und\.?|sala|conjunto|cj\.?|fundos|lote|quadra)\b)/i);
- const unitPattern=/(?:^|[\s,])(?:apto?\.?|apartamento|apart\.?|ap\.?|bloco|bl\.?|torre|unidade|und\.?|sala|conjunto|cj\.?|fundos|lote|quadra)\s*(?:n[ºo°.]?\s*)?([a-z]?\d{1,6}[a-z]?)/gi;
- const units=[];let match;
- while((match=unitPattern.exec(normalized))!==null)units.push({start:match.index,end:unitPattern.lastIndex,number:match[1]});
- // Um complemento introduzido por palavra-chave pode estar no meio do endereco.
- let base=normalized.replace(/(?:^|[\s,])(?:apto?\.?|apartamento|apart\.?|ap\.?|bloco|bl\.?|torre|unidade|und\.?|sala|conjunto|cj\.?|fundos|lote|quadra)\s*(?:n[ºo°.]?\s*)?[a-z]?\d{1,6}[a-z]?(?=$|[\s,])/gi,' ');
- base=base.replace(/\s*,\s*,/g,',').trim().replace(/,$/,'');
- // Complementos sem numero, no fim, nao sao parte do logradouro.
- base=base.replace(/\s*,?\s*(?:apartamento|apto|ap|bloco|torre|fundos)\s*$/i,'');
+ let base=text.replace(/[;|]/g,',').replace(/\s+/g,' ').trim();
+ const units=[];
+ // Remove complementos em qualquer posição, inclusive "Apartamento, 103B, 438".
+ // O número imediatamente associado ao complemento nunca será número predial.
+ const unitRe=/(^|[\s,])(?:apartamentos?|aptos?\.?|apart\.?|ap\.?|blocos?|bl\.?|torres?|unidades?|und\.?|salas?|conjuntos?|cj\.?|fundos|lotes?|quadras?)\s*[,.:#-]?\s*(?:n(?:[ºo°.]|umero)?\s*)?([a-z]?\d{1,6}[a-z]?)\b/gi;
+ base=base.replace(unitRe,(_,sep,number)=>{units.push(number);return sep===' '? ' ':','});
+ // Também remove a palavra "Apartamento" solta, que não pode integrar o nome da rua.
+ const orphanRe=/(^|[\s,])(?:apartamentos?|aptos?\.?|apart\.?|ap\.?|blocos?|bl\.?|torres?|unidades?|und\.?|salas?|conjuntos?|cj\.?|fundos|lotes?|quadras?)(?=$|[\s,])/gi;
+ base=base.replace(orphanRe,' ');
+ base=base.replace(/\s*,\s*,+/g,',').replace(/\s+/g,' ').replace(/^[\s,]+|[\s,]+$/g,'');
+ // Número predial explícito tem prioridade. Caso contrário, usar o primeiro número
+ // ainda associado ao logradouro, depois da remoção dos números dos complementos.
  const candidates=[...base.matchAll(/(?:^|[\s,])(?:n[ºo°.]?\s*)?(\d{1,6}[a-z]?)(?=$|[\s,])/gi)];
  let street='',num='',ambiguousNumber=false;
  if(candidates.length){
-  // A primeira referencia numerica restante e o numero predial; se houver varias, pedir revisao.
-  const m=candidates[0],prefix=base.slice(0,m.index).replace(/[\s,]+$/,'');
+  const m=candidates[0];
+  const prefix=base.slice(0,m.index).replace(/[\s,]+$/,'');
   street=normalizeStreet(prefix);num=m[1].toUpperCase();
   ambiguousNumber=candidates.length>1;
  }else street=normalizeStreet(base.replace(/\s*,.*$/,''));
- return {street,num,address:displayStreet(street)+(num?', '+num:''),ambiguousNumber,unitNumbers:units.map(u=>u.number)};
+ return {street,num,address:displayStreet(street)+(num?', '+num:''),ambiguousNumber,unitNumbers:units};
 }
 function wordsMatch(shortName,longName){
  const a=shortName.split(' '),b=longName.split(' ');
