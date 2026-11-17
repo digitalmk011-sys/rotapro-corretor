@@ -1,7 +1,17 @@
-RotaPro Corretor v1.3 — Padronização de toda a planilha
+# RotaPro Corretor v1.4
 
-Importa XLSX, preserva linhas, colunas e abas, e padroniza TODAS as ruas reconhecidas. Expande R/R. -> Rua, Av -> Avenida, Pion -> Pioneiro e outras abreviações. Para iniciais em nomes próprios, usa outras linhas da mesma planilha, no mesmo município e número, como referência; nomes ambíguos ficam para revisão.
+Projeto independente do RotaPro principal.
 
-Não consulta automaticamente Google/Waze nem inventa nomes oficiais. Os links de mapas servem para verificação manual. Exporta a planilha inteira em XLSX e mostra PLANILHA CORRIGIDA.
+## Novidades
+- Analisa toda a planilha, não apenas um endereço de demonstração.
+- Separa os números de apartamento, bloco e unidade antes de identificar o número do imóvel, inclusive quando o complemento aparece antes do número predial.
+- Padroniza abreviações e aproveita nomes completos existentes na própria planilha.
+- Preserva todas as linhas, colunas e abas ao exportar XLSX.
+- Sinaliza endereços com mais de um número predial possível para revisão; não adivinha números.
+- Não realiza consultas automáticas ao Google Maps/Waze nem usa IA remota.
 
-Substitua index.html, app.js e README.md na raiz do repositório. Atualize com Ctrl+F5.
+## Instalação
+Envie index.html, app.js e README.md para a raiz do repositório GitHub Pages do corretor.
+
+## Limites
+Endereços sem número explícito ou com múltiplos números não identificáveis exigem conferência. O aplicativo processa os arquivos localmente no navegador. A biblioteca SheetJS é carregada por CDN.

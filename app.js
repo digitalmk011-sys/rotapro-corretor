@@ -16,11 +16,27 @@ function normalizeStreet(s){
 function displayStreet(s){return s.split(' ').map((w,i)=>i>0&&['da','de','do','das','dos','e'].includes(w)?w:(WORD_ACCENTS[w]||w.charAt(0).toUpperCase()+w.slice(1))).join(' ')}
 function parseAddress(raw){
  const text=String(raw??'').trim();
- // Localiza o primeiro número de imóvel após o logradouro, não números de apartamento/bloco.
- const m=text.match(/^(.+?)(?:\s*,\s*|\s+)(\d{1,6}[a-zA-Z]?)(?=\s*(?:,|\b|$))/);
- if(!m){const street=normalizeStreet(text.replace(/\s*,\s*(?:apto?|apartamento|bloco|torre|sala|fundos|unidade|casa)\b.*$/i,''));return {street,num:'',address:displayStreet(street)}}
- const street=normalizeStreet(m[1]);const num=m[2].toUpperCase();
- return {street,num,address:displayStreet(street)+', '+num};
+ // Remove primeiro os complementos, inclusive quando aparecem antes do numero do predio.
+ // Numeros precedidos por apartamento, apto, bloco, unidade etc. nunca viram numero da rua.
+ const normalized=text.replace(/[;|]/g,',').replace(/\s+/g,' ').trim();
+ const tokens=normalized.split(/(?=\b(?:apto?\.?|apartamento|apart\.?|ap\.?|bloco|bl\.?|torre|unidade|und\.?|sala|conjunto|cj\.?|fundos|lote|quadra)\b)/i);
+ const unitPattern=/(?:^|[\s,])(?:apto?\.?|apartamento|apart\.?|ap\.?|bloco|bl\.?|torre|unidade|und\.?|sala|conjunto|cj\.?|fundos|lote|quadra)\s*(?:n[ºo°.]?\s*)?([a-z]?\d{1,6}[a-z]?)/gi;
+ const units=[];let match;
+ while((match=unitPattern.exec(normalized))!==null)units.push({start:match.index,end:unitPattern.lastIndex,number:match[1]});
+ // Um complemento introduzido por palavra-chave pode estar no meio do endereco.
+ let base=normalized.replace(/(?:^|[\s,])(?:apto?\.?|apartamento|apart\.?|ap\.?|bloco|bl\.?|torre|unidade|und\.?|sala|conjunto|cj\.?|fundos|lote|quadra)\s*(?:n[ºo°.]?\s*)?[a-z]?\d{1,6}[a-z]?(?=$|[\s,])/gi,' ');
+ base=base.replace(/\s*,\s*,/g,',').trim().replace(/,$/,'');
+ // Complementos sem numero, no fim, nao sao parte do logradouro.
+ base=base.replace(/\s*,?\s*(?:apartamento|apto|ap|bloco|torre|fundos)\s*$/i,'');
+ const candidates=[...base.matchAll(/(?:^|[\s,])(?:n[ºo°.]?\s*)?(\d{1,6}[a-z]?)(?=$|[\s,])/gi)];
+ let street='',num='',ambiguousNumber=false;
+ if(candidates.length){
+  // A primeira referencia numerica restante e o numero predial; se houver varias, pedir revisao.
+  const m=candidates[0],prefix=base.slice(0,m.index).replace(/[\s,]+$/,'');
+  street=normalizeStreet(prefix);num=m[1].toUpperCase();
+  ambiguousNumber=candidates.length>1;
+ }else street=normalizeStreet(base.replace(/\s*,.*$/,''));
+ return {street,num,address:displayStreet(street)+(num?', '+num:''),ambiguousNumber,unitNumbers:units.map(u=>u.number)};
 }
 function wordsMatch(shortName,longName){
  const a=shortName.split(' '),b=longName.split(' ');
@@ -59,7 +75,7 @@ function process(data){
  const groups=new Map();for(const x of processed){if(!groups.has(x.key))groups.set(x.key,[]);groups.get(x.key).push(x)}
  let n=0;for(const [,group] of groups){n++;const cp=new Set(group.filter(x=>x.cep.length===8).map(x=>x.cep));const c=group.filter(x=>x.coord);let divergent=false;
  for(let i=0;i<c.length;i++)for(let j=i+1;j<c.length;j++)if(haversine(c[i],c[j])>150)divergent=true;
- for(const x of group){x.stop=n;x.review=!x.p.num||!x.city||cp.size>1||divergent||x.ambiguous;x.reason=!x.p.num?'Número não identificado':!x.city?'Cidade ausente':cp.size>1?'CEPs diferentes no mesmo endereço':divergent?'Coordenadas distantes para o mesmo endereço':x.ambiguous?'Nome de rua ambíguo — revisar':x.expanded?'Abreviação expandida com referência na planilha':'Padronizado por rua, número e cidade';}}
+ for(const x of group){x.stop=n;x.review=!x.p.num||!x.city||x.p.ambiguousNumber||cp.size>1||divergent||x.ambiguous;x.reason=!x.p.num?'Número não identificado':!x.city?'Cidade ausente':x.p.ambiguousNumber?'Mais de um número predial possível — revisar':cp.size>1?'CEPs diferentes no mesmo endereço':divergent?'Coordenadas distantes para o mesmo endereço':x.ambiguous?'Nome de rua ambíguo — revisar':x.expanded?'Abreviação expandida com referência na planilha':'Padronizado por rua, número e cidade';}}
  render();$('export').disabled=!processed.length; $('exportNotice').hidden=true;
 }
 function haversine(a,b){const r=Math.PI/180,dlat=(a.lat-b.lat)*r,dlon=(a.lon-b.lon)*r;const q=Math.sin(dlat/2)**2+Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin(dlon/2)**2;return 12742000*Math.asin(Math.min(1,Math.sqrt(q)))}
@@ -114,7 +130,7 @@ $('export').onclick=()=>{
    if(addressCol<0)throw Error('Não encontrei a coluna de endereço.');
    if(sourceRowIndexes.length!==processed.length)throw Error('Contagem de linhas inconsistente.');
    processed.forEach((item,i)=>{
-    if(!item.p.num||!item.p.street||item.ambiguous)return; // Endereço incerto fica intacto.
+    if(!item.p.num||!item.p.street||item.ambiguous||item.p.ambiguousNumber)return; // Endereço incerto fica intacto.
     const row=sourceRowIndexes[i];
     const ref=XLSX.utils.encode_cell({r:row,c:addressCol});
     const old=ws[ref]||{};
@@ -122,7 +138,7 @@ $('export').onclick=()=>{
    });
   }else{
    wb=XLSX.utils.book_new();
-   const rows=processed.map(x=>({...x.r,'Destination Address':x.p.num&&!x.ambiguous?x.p.address:x.raw}));
+   const rows=processed.map(x=>({...x.r,'Destination Address':x.p.num&&!x.ambiguous&&!x.p.ambiguousNumber?x.p.address:x.raw}));
    XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows,{header:[...headers]}),'Entregas corrigidas');
   }
   const filename=sourceFilename.replace(/\.xlsx?$/i,'')+'_CORRIGIDA.xlsx';
